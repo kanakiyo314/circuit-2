@@ -8,23 +8,23 @@
 #include <vector>
 #include <fstream>
 #include <boost/multiprecision/cpp_int.hpp>
+#include <mutex>
 
 using namespace std;
 namespace mp = boost::multiprecision;
-void circuit(unsigned int n, unsigned int q, unsigned int depth);
-void circuit_thread(unsigned int n, unsigned int q, unsigned int depth, unsigned int i);
+void circuit(size_t n, size_t q, size_t depth, size_t thread_number);
 unsigned int count(mp::cpp_int x);
-mp::cpp_int func(const mp::cpp_int& x, const unsigned int& q);
+mp::cpp_int func(const mp::cpp_int& x, const size_t& q);
 void showTime();
 ofstream outputfile("Circuit.txt");
-
-
 clock_t start_time;
+
+size_t thread_num;
+std::mutex mtx;
 
 int main()
 {
-	std::vector<std::thread> threads;
-	unsigned int n, q, d;
+	size_t n, q, d;
 
 	std::cout << "n = ";
 	std::cin >> n;
@@ -32,21 +32,26 @@ int main()
 	std::cin >> q;
 	std::cout << "depth = ";
 	std::cin >> d;
-
+	std::cout << "thread_num = ";
+	std::cin >> thread_num;
 	start_time = clock();
 	showTime();
 	std::cout << "Main start" << std::endl;
-	for (unsigned int i = 0; i < n + 1; i++)
+
+	std::vector<std::thread> threads;
+	for (size_t i = 0; i < n + 1; i++)
 	{
-		/*
-		if (i % 500 == 0 && i != 0)
+		for (size_t j = 0; j < thread_num; j++)
 		{
-			showTime();
-			std::cout << "n = " << i * 2 + 1 << " : now running..." << std::endl;
+			threads.emplace_back(std::thread(circuit, i, q, d, j + 1));
 		}
-		*/
-		circuit(i, q, d);
 	}
+
+	for (auto& thread : threads)
+	{
+		thread.join();
+	}
+
 	showTime();
 	std::cout << "Main end" << std::endl;
 	system("pause");
@@ -54,61 +59,53 @@ int main()
 	return 0;
 }
 
-void circuit(unsigned int n, unsigned int q, unsigned int depth)
+void circuit(size_t n, size_t q, size_t depth, size_t number)
 {
-	unsigned int N_init = n * 2 + 1;
+	size_t N_init = n * 2 + 1;
+	size_t Q, k;
+	size_t l;
 	mp::cpp_int m, N;
 	std::vector <mp::cpp_int> S(depth);
 
-	for (unsigned int i = 1; i < q + 1; i++)
+	for (size_t i = number; i < q + 1; i+=thread_num)
 	{
-		circuit_thread(n, q, depth, i);
-	}
-}
+		N = N_init;
+		Q = i * 2 + 1;
 
-void circuit_thread(unsigned int n, unsigned int q, unsigned int depth, unsigned int i)
-{
-	unsigned int N_init = n * 2 + 1;
-	unsigned int Q = i * 2 + 1;
-	unsigned int k;
-	unsigned long long l;
-	mp::cpp_int N = N_init;
-	mp::cpp_int m;
-	std::vector <mp::cpp_int> S(depth);
-
-
-	for (unsigned int d = 0; d < depth; d++)
-	{
-		k = count((Q - 2) * N + 1);
-		m = N;
-
-		for (unsigned int j = 0; j < k; j++)
-			m = func(m, Q);
-
-		l = count(m);
-		S[d] = m >> l;
-
-		if (N_init == S[d])
+		for (unsigned int d = 0; d < depth; d++)
 		{
-			showTime();
-			std::cout << "n=" << N_init << " (" << Q << "n+1) " << N_init << "(" << k << ") " << m << "(" << l << ")";
-			outputfile << "n=" << N_init << " (" << Q << "n+1) " << N_init << "(" << k << ") " << m << "(" << l << ")";
-			for (unsigned int j = 0; j < d + 1; j++)
+			k = count((Q - 2) * N + 1);
+			m = N;
+
+			for (unsigned int j = 0; j < k; j++)
+				m = func(m, Q);
+
+			l = count(m);
+			S[d] = m >> l;
+
+			if (N_init == S[d])
 			{
-				std::cout << " " << S[j];
-				outputfile << " " << S[j];
+				mtx.lock();
+				showTime();
+				std::cout << "n=" << N_init << " (" << Q << "n+1) " << N_init << "(" << k << ") " << m << "(" << l << ")";
+				outputfile << "n=" << N_init << " (" << Q << "n+1) " << N_init << "(" << k << ") " << m << "(" << l << ")";
+				for (unsigned int j = 0; j < d + 1; j++)
+				{
+					std::cout << " " << S[j];
+					outputfile << " " << S[j];
+				}
+				std::cout << std::endl;
+				outputfile << endl;
+				mtx.unlock();
+				break;
 			}
-			std::cout << std::endl;
-			outputfile << endl;
-			break;
-		}
-		else
-		{
-			N = S[d];
+			else
+			{
+				N = S[d];
+			}
 		}
 	}
 }
-
 
 unsigned int count(mp::cpp_int x)
 {
@@ -120,7 +117,7 @@ unsigned int count(mp::cpp_int x)
 	return count;
 }
 
-mp::cpp_int func(const mp::cpp_int& x, const unsigned int& q)
+mp::cpp_int func(const mp::cpp_int& x, const size_t& q)
 {
 	if (x % 2 == 0) return x >> 1;
 	else			return (q * x + 1) >> 1;
